@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CopilotChatTabs">
+    <option name="completionTestTabDelete" value="false" />
+    <option name="crTabDelete" value="false" />
+    <option name="selectedChatTabId" value="019c1efebe06732d94b463f072d94df3" />
+    <option name="tabConversationMap">
+      <map>
+        <entry key="019c0ed14965715fb12c19782cdfccc7" value="019c0ed1496f74b4963b2507f1fb591a" />
+        <entry key="019c0f21d8f17e7b96b8bcf717834026" value="019c0f21d9057bf19a598905c8e54016" />
+        <entry key="019c103e1e78731ba1599d479f238e58" value="019c103e1e8a7d9cbff3bde1f04f36de" />
+        <entry key="019c10e5611f75cea9d2f66041fbb48b" value="019c10e561327e409e7928a727806f28" />
+        <entry key="019c117d4fee775f88f5a89c5ad39488" value="019c117d500d7c348aa598faeaf701c4" />
+        <entry key="019c119247ce7263980bef7c0e2f81c7" value="019c11924804748b8472b89aca1e1c57" />
+        <entry key="019c13172e0d75769a79681321f16025" value="019c13172e20789092a184d47e6296a5" />
+        <entry key="019c133c2de775b5a89289e86aed66e8" value="019c133c2e307ffab609faa33edaba4c" />
+        <entry key="019c140b744a754c99b187abd5605d5b" value="019c140b75a976e6a3a48cb7904b1eab" />
+        <entry key="019c1efebe06732d94b463f072d94df3" value="019c1efebe767e59a7439ee58df611ff" />
+      </map>
+    </option>
+    <option name="unitTestTabDelete" value="false" />
+  </component>
+</project>
