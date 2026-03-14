@@ -33,6 +33,10 @@ interface STTConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  cliMode?: boolean;
+  command?: string;
+  args?: string[];
+  timeoutSeconds?: number;
 }
 
 function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
@@ -54,6 +58,19 @@ function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
   // 回退到 tools.media.audio.models[0]（框架级配置）
   const audioModelEntry = c?.tools?.media?.audio?.models?.[0];
   if (audioModelEntry) {
+    // CLI 模式
+    if (audioModelEntry.type === "cli") {
+      return {
+        baseUrl: "",
+        apiKey: "",
+        model: "",
+        cliMode: true,
+        command: audioModelEntry.command,
+        args: audioModelEntry.args,
+        timeoutSeconds: audioModelEntry.timeoutSeconds ?? 60,
+      };
+    }
+    // Provider 模式
     const providerId: string = audioModelEntry?.provider || "openai";
     const providerCfg = c?.models?.providers?.[providerId];
     const baseUrl: string | undefined = audioModelEntry?.baseUrl || providerCfg?.baseUrl;
@@ -70,6 +87,27 @@ function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
 async function transcribeAudio(audioPath: string, cfg: Record<string, unknown>): Promise<string | null> {
   const sttCfg = resolveSTTConfig(cfg);
   if (!sttCfg) return null;
+
+  // CLI 模式：调用本地 whisper 命令
+  if (sttCfg.cliMode && sttCfg.command) {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    const args = (sttCfg.args ?? []).map((a: string) =>
+      a.replace("{{MediaPath}}", audioPath)
+    );
+    const timeoutMs = (sttCfg.timeoutSeconds ?? 60) * 1000;
+    try {
+      const { stdout } = await execFileAsync(sttCfg.command, args, { timeout: timeoutMs });
+      // whisper CLI 输出格式：[00:00.000 --> 00:02.000] 文字内容
+      const lines = stdout.split("\n")
+        .map((l: string) => l.replace(/^\[[\d:.]+\s*-->\s*[\d:.]+\]\s*/, "").trim())
+        .filter(Boolean);
+      return lines.join(" ") || null;
+    } catch (err: any) {
+      throw new Error(`STT CLI failed: ${String(err?.message ?? err).slice(0, 300)}`);
+    }
+  }
 
   const fileBuffer = fs.readFileSync(audioPath);
   const fileName = sanitizeFileName(path.basename(audioPath));
@@ -1309,6 +1347,19 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
             const toolBlock = recentTools.join("\n---\n");
             return `🔧 调用工具中…\n\`\`\`\n${toolBlock}\n\`\`\``;
           };
+          let typingIntervalId: ReturnType<typeof setInterval> | null = null;
+
+          // 启动 typing 心跳：每 15 秒重发一次 C2C InputNotify，保持"正在输入"状态
+          if (event.type === "c2c") {
+            typingIntervalId = setInterval(async () => {
+              try {
+                const token = await getAccessToken(account.appId, account.clientSecret);
+                await sendC2CInputNotify(token, event.senderId, event.messageId, 60);
+              } catch {
+                // 非关键，忽略
+              }
+            }, 15000);
+          }
 
           const timeoutPromise = new Promise<void>((_, reject) => {
             timeoutId = setTimeout(() => {
@@ -1397,9 +1448,13 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   return;
                 }
 
+                // 停止 typing 心跳
+                if (typingIntervalId) {
+                  clearInterval(typingIntervalId);
+                  typingIntervalId = null;
+                }
                 // 收到 block 回复，清除所有超时定时器
-                hasBlockResponse = true;
-                if (timeoutId) {
+                hasBlockResponse = true;                if (timeoutId) {
                   clearTimeout(timeoutId);
                   timeoutId = null;
                 }
@@ -2425,6 +2480,12 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
               log?.error(`[qqbot:${account.accountId}] Dispatch completed with ${toolDeliverCount} tool deliver(s) but no block deliver, sending fallback`);
               const fallback = formatToolFallback();
               await sendErrorMessage(fallback);
+            }
+          } finally {
+            // 确保心跳被清除
+            if (typingIntervalId) {
+              clearInterval(typingIntervalId);
+              typingIntervalId = null;
             }
           }
         } catch (err) {
