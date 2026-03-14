@@ -501,6 +501,48 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     return `dm:${msg.senderId}`;
   };
 
+  // ============ Inbound 防抖（合并短时间内连续消息） ============
+  // 读取 cfg.messages.inbound.debounceMs，默认 0（不防抖）
+  // 在 debounceMs 时间窗口内连续收到的消息将合并为一条（内容换行拼接），
+  // 以最后一条消息的 ID/时间戳为准，减少模型被多次打断的问题。
+  const inboundDebounceMs: number = (() => {
+    const v = (cfg as any)?.messages?.inbound?.debounceMs;
+    return typeof v === "number" && v > 0 ? v : 0;
+  })();
+  const debounceBuffers = new Map<string, { msgs: QueuedMessage[]; timer: ReturnType<typeof setTimeout> }>();
+  const flushDebounceBuffer = (peerId: string) => {
+    const buf = debounceBuffers.get(peerId);
+    if (!buf) return;
+    debounceBuffers.delete(peerId);
+    if (buf.msgs.length === 0) return;
+    if (buf.msgs.length === 1) {
+      enqueueMessage(buf.msgs[0]);
+      return;
+    }
+    // 合并多条消息：以最后一条为基准，content 换行拼接
+    const merged: QueuedMessage = {
+      ...buf.msgs[buf.msgs.length - 1],
+      content: buf.msgs.map(m => m.content).filter(Boolean).join("\n"),
+    };
+    enqueueMessage(merged);
+  };
+  const enqueueWithDebounce = (msg: QueuedMessage): void => {
+    if (inboundDebounceMs <= 0) {
+      enqueueMessage(msg);
+      return;
+    }
+    const peerId = getMessagePeerId(msg);
+    const existing = debounceBuffers.get(peerId);
+    if (existing) {
+      clearTimeout(existing.timer);
+      existing.msgs.push(msg);
+      existing.timer = setTimeout(() => flushDebounceBuffer(peerId), inboundDebounceMs);
+    } else {
+      const timer = setTimeout(() => flushDebounceBuffer(peerId), inboundDebounceMs);
+      debounceBuffers.set(peerId, { msgs: [msg], timer });
+    }
+  };
+
   const enqueueMessage = (msg: QueuedMessage): void => {
     const peerId = getMessagePeerId(msg);
     const content = (msg.content ?? "").trim().toLowerCase();
@@ -2522,7 +2564,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                 // 日志：输出用户输入完整 JSON
                 log?.info(`[qqbot:${account.accountId}] ▶ INBOUND C2C RAW: ${JSON.stringify(event)}`);
                 // 使用消息队列异步处理，防止阻塞心跳
-                enqueueMessage({
+                enqueueWithDebounce({
                   type: "c2c",
                   senderId: event.author.user_openid,
                   content: event.content,
@@ -2543,7 +2585,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                 });
                 const guildRefs = parseRefIndices((event as any).message_scene?.ext);
                 log?.info(`[qqbot:${account.accountId}] ▶ INBOUND GUILD RAW: ${JSON.stringify(event)}`);
-                enqueueMessage({
+                enqueueWithDebounce({
                   type: "guild",
                   senderId: event.author.id,
                   senderName: event.author.username,
@@ -2567,7 +2609,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                 });
                 const dmRefs = parseRefIndices((event as any).message_scene?.ext);
                 log?.info(`[qqbot:${account.accountId}] ▶ INBOUND DM RAW: ${JSON.stringify(event)}`);
-                enqueueMessage({
+                enqueueWithDebounce({
                   type: "dm",
                   senderId: event.author.id,
                   senderName: event.author.username,
@@ -2590,7 +2632,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                 });
                 const groupRefs = parseRefIndices(event.message_scene?.ext);
                 log?.info(`[qqbot:${account.accountId}] ▶ INBOUND GROUP RAW: ${JSON.stringify(event)}`);
-                enqueueMessage({
+                enqueueWithDebounce({
                   type: "group",
                   senderId: event.author.member_openid,
                   content: event.content,
