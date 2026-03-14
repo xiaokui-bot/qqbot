@@ -1398,7 +1398,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
               } catch {
                 // 非关键，忽略
               }
-            }, 15000);
+            }, 5000);
           }
 
           const timeoutPromise = new Promise<void>((_, reject) => {
