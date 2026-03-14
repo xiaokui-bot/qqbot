@@ -2584,7 +2584,9 @@ ${mediaSection}
                   nickname: event.author.username,
                   accountId: account.accountId,
                 });
-                enqueueWithDebounce({                  type: "guild",
+                const guildRefs = parseRefIndices((event as any).message_scene?.ext);
+                enqueueWithDebounce({
+                  type: "guild",
                   senderId: event.author.id,
                   senderName: event.author.username,
                   content: event.content,
@@ -2605,7 +2607,9 @@ ${mediaSection}
                   nickname: event.author.username,
                   accountId: account.accountId,
                 });
-                enqueueWithDebounce({                  type: "dm",
+                const dmRefs = parseRefIndices((event as any).message_scene?.ext);
+                enqueueWithDebounce({
+                  type: "dm",
                   senderId: event.author.id,
                   senderName: event.author.username,
                   content: event.content,
@@ -2625,7 +2629,9 @@ ${mediaSection}
                   groupOpenid: event.group_openid,
                   accountId: account.accountId,
                 });
-                enqueueWithDebounce({                  type: "group",
+                const groupRefs = parseRefIndices((event as any).message_scene?.ext);
+                enqueueWithDebounce({
+                  type: "group",
                   senderId: event.author.member_openid,
                   content: event.content,
                   messageId: event.id,
