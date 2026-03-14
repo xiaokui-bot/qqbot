@@ -480,11 +480,46 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // ============ 按用户并发的消息队列（同用户串行，跨用户并行） ============
   // 每个用户有独立队列，同一用户的消息串行处理（保持时序），
   // 不同用户的消息并行处理（互不阻塞）。
-  
-  // 紧急命令列表：这些命令会立即执行，不进入队列
-  const URGENT_COMMANDS = ["/stop"];
-  
-  const userQueues = new Map<string, QueuedMessage[]>(); // peerId → 消息队列
+
+  // ============ Inbound 防抖（合并短时间内连续消息） ============
+  // 读取 cfg.messages.inbound.debounceMs，默认 0（不防抖）
+  const inboundDebounceMs: number = (() => {
+    const v = (cfg as any)?.messages?.inbound?.debounceMs;
+    return typeof v === "number" && v > 0 ? v : 0;
+  })();
+  const debounceBuffers = new Map<string, { msgs: QueuedMessage[]; timer: ReturnType<typeof setTimeout> }>();
+  const flushDebounceBuffer = (peerId: string) => {
+    const buf = debounceBuffers.get(peerId);
+    if (!buf) return;
+    debounceBuffers.delete(peerId);
+    if (buf.msgs.length === 0) return;
+    if (buf.msgs.length === 1) {
+      enqueueMessage(buf.msgs[0]);
+      return;
+    }
+    // 合并多条消息：以最后一条为基准，content 拼接
+    const merged: QueuedMessage = {
+      ...buf.msgs[buf.msgs.length - 1],
+      content: buf.msgs.map(m => m.content).filter(Boolean).join("\n"),
+    };
+    enqueueMessage(merged);
+  };
+  const enqueueWithDebounce = (msg: QueuedMessage): void => {
+    if (inboundDebounceMs <= 0) {
+      enqueueMessage(msg);
+      return;
+    }
+    const peerId = getMessagePeerId(msg);
+    const existing = debounceBuffers.get(peerId);
+    if (existing) {
+      clearTimeout(existing.timer);
+      existing.msgs.push(msg);
+      existing.timer = setTimeout(() => flushDebounceBuffer(peerId), inboundDebounceMs);
+    } else {
+      const timer = setTimeout(() => flushDebounceBuffer(peerId), inboundDebounceMs);
+      debounceBuffers.set(peerId, { msgs: [msg], timer });
+    }
+  };  const userQueues = new Map<string, QueuedMessage[]>(); // peerId → 消息队列
   const activeUsers = new Set<string>(); // 正在处理中的用户
   let messagesProcessed = 0;
   let handleMessageFnRef: ((msg: QueuedMessage) => Promise<void>) | null = null;
@@ -2526,7 +2561,7 @@ ${mediaSection}
                 // 日志：输出用户输入完整 JSON
                 log?.info(`[qqbot:${account.accountId}] ▶ INBOUND C2C RAW: ${JSON.stringify(event)}`);
                 // 使用消息队列异步处理，防止阻塞心跳
-                enqueueMessage({
+                enqueueWithDebounce({
                   type: "c2c",
                   senderId: event.author.user_openid,
                   content: event.content,
@@ -2545,10 +2580,7 @@ ${mediaSection}
                   nickname: event.author.username,
                   accountId: account.accountId,
                 });
-                const guildRefs = parseRefIndices((event as any).message_scene?.ext);
-                log?.info(`[qqbot:${account.accountId}] ▶ INBOUND GUILD RAW: ${JSON.stringify(event)}`);
-                enqueueMessage({
-                  type: "guild",
+                enqueueWithDebounce({                  type: "guild",
                   senderId: event.author.id,
                   senderName: event.author.username,
                   content: event.content,
@@ -2569,10 +2601,7 @@ ${mediaSection}
                   nickname: event.author.username,
                   accountId: account.accountId,
                 });
-                const dmRefs = parseRefIndices((event as any).message_scene?.ext);
-                log?.info(`[qqbot:${account.accountId}] ▶ INBOUND DM RAW: ${JSON.stringify(event)}`);
-                enqueueMessage({
-                  type: "dm",
+                enqueueWithDebounce({                  type: "dm",
                   senderId: event.author.id,
                   senderName: event.author.username,
                   content: event.content,
@@ -2592,10 +2621,7 @@ ${mediaSection}
                   groupOpenid: event.group_openid,
                   accountId: account.accountId,
                 });
-                const groupRefs = parseRefIndices(event.message_scene?.ext);
-                log?.info(`[qqbot:${account.accountId}] ▶ INBOUND GROUP RAW: ${JSON.stringify(event)}`);
-                enqueueMessage({
-                  type: "group",
+                enqueueWithDebounce({                  type: "group",
                   senderId: event.author.member_openid,
                   content: event.content,
                   messageId: event.id,
