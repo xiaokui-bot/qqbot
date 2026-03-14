@@ -1488,11 +1488,6 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   return;
                 }
 
-                // 停止 typing 心跳
-                if (typingIntervalId) {
-                  clearInterval(typingIntervalId);
-                  typingIntervalId = null;
-                }
                 // 收到 block 回复，清除所有超时定时器
                 hasBlockResponse = true;                if (timeoutId) {
                   clearTimeout(timeoutId);
@@ -1620,6 +1615,12 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   }
                   
                   log?.info(`[qqbot:${account.accountId}] Send queue: ${sendQueue.map(item => item.type).join(" -> ")}`);
+
+                  // 发送第一条消息前停止 typing 心跳
+                  if (typingIntervalId) {
+                    clearInterval(typingIntervalId);
+                    typingIntervalId = null;
+                  }
                   
                   // 按顺序发送
                   for (const item of sendQueue) {
