@@ -19,6 +19,98 @@ metadata: {"openclaw":{"emoji":"⏰","requires":{"config":["channels.qqbot"]}}}
 
 ---
 
+## 🛠️ 两种调用方式
+
+### 方式一：cron 工具调用（推荐）
+
+如果你的环境中有 `cron` 工具，使用 JSON 参数直接调用：
+
+```javascript
+cron({
+  "action": "add",
+  "job": {
+    "name": "喝水提醒",
+    "schedule": { "kind": "at", "atMs": 1770734300000 },
+    "sessionTarget": "isolated",
+    "wakeMode": "now",
+    "deleteAfterRun": true,
+    "payload": {
+      "kind": "agentTurn",
+      "message": "暖心提醒内容",
+      "deliver": true,
+      "channel": "qqbot",
+      "to": "qqbot:c2c:0DEBF031..."
+    }
+  }
+})
+```
+
+### 方式二：exec 工具执行 CLI 命令（备用）
+
+⚠️ **如果没有 cron 工具，使用 exec 工具调用 openclaw CLI 命令。**
+
+**重要区别：CLI 参数名和 JSON API 不一样！**
+
+| JSON API 字段 | CLI 参数 |
+|--------------|----------|
+| `action: "add"` | `openclaw cron add` |
+| `job.schedule.kind: "at"` | `--at "30s"` 或 `--at "2026-03-14T10:00:00Z"` |
+| `job.schedule.kind: "cron"` | `--cron "0 8 * * *" --tz "Asia/Shanghai"` |
+| `job.schedule.atMs` | `--at "30s"`（相对时间）或 ISO 时间字符串 |
+| `job.sessionTarget: "isolated"` | `--session isolated` |
+| `job.wakeMode: "now"` | `--wake now` |
+| `job.deleteAfterRun: true` | `--delete-after-run` |
+| `job.payload.kind: "agentTurn"` | `--message "..."` |
+| `job.payload.message` | `--message "..."` |
+| `job.payload.deliver: true` | `--announce` |
+| `job.payload.channel: "qqbot"` | `--channel qqbot` |
+| `job.payload.to` | `--to "qqbot:c2c:..."` |
+
+**CLI 命令示例（一次性提醒）：**
+
+```bash
+exec({
+  command: 'openclaw cron add --name "喝水提醒" --at "30s" --session isolated --wake now --delete-after-run --announce --channel qqbot --to "qqbot:c2c:0DEBF031A9738F49D0194257976D7BAE" --message "你是一个暖心的提醒助手。请用温暖、有趣的方式提醒用户：该喝水了。要求：(1) 不要回复HEARTBEAT_OK (2) 不要解释你是谁 (3) 直接输出一条暖心的提醒消息 (4) 可以加一句简短的鸡汤或关怀的话 (5) 控制在2-3句话以内 (6) 用emoji点缀"'
+})
+```
+
+**CLI 命令示例（周期提醒）：**
+
+```bash
+exec({
+  command: 'openclaw cron add --name "打卡提醒" --cron "0 8 * * *" --tz "Asia/Shanghai" --session isolated --wake now --announce --channel qqbot --to "qqbot:c2c:0DEBF031A9738F49D0194257976D7BAE" --message "你是一个暖心的提醒助手。请用温暖、有趣的方式提醒用户：该打卡了。要求：(1) 不要回复HEARTBEAT_OK (2) 不要解释你是谁 (3) 直接输出一条暖心的提醒消息 (4) 可以加一句简短的鸡汤或关怀的话 (5) 控制在2-3句话以内 (6) 用emoji点缀"'
+})
+```
+
+**查询提醒（CLI）：**
+
+```bash
+exec({ command: 'openclaw cron list --json' })
+```
+
+**删除提醒（CLI）：**
+
+```bash
+exec({ command: 'openclaw cron rm <job-id>' })
+```
+
+**⚠️ CLI 时间格式特殊说明：**
+
+- `--at` 参数支持：
+  - 相对时间：`"30s"`, `"5m"`, `"1h"`（推荐用于短时间提醒）
+  - ISO 时间：`"2026-03-14T10:00:00Z"`
+  - ❌ 不支持：毫秒时间戳（如 `1770734300000`）
+
+- JSON API 的 `schedule.atMs` 必须是毫秒时间戳，需要自己计算
+- CLI 的 `--at` 可以直接用 `"30s"` 这样的相对时间，更方便
+
+**如何选择？**
+1. 优先使用 `cron` 工具（如果可用）
+2. 如果 `cron` 工具不可用，用 `exec` 执行 CLI 命令
+3. 可以通过 `openclaw cron add --help` 查看完整参数列表
+
+---
+
 ## 🤖 AI 决策指南
 
 ### 时间确认规则
