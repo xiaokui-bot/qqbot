@@ -583,9 +583,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       return;
     }
     // 合并多条消息：以最后一条为基准，content 换行拼接
+    // refMsgIdx 取第一条非空值（避免引用被后续无引用消息覆盖）
+    const firstRefMsgIdx = buf.msgs.find(m => m.refMsgIdx)?.refMsgIdx;
     const merged: QueuedMessage = {
       ...buf.msgs[buf.msgs.length - 1],
       content: buf.msgs.map(m => m.content).filter(Boolean).join("\n"),
+      ...(firstRefMsgIdx ? { refMsgIdx: firstRefMsgIdx } : {}),
     };
     enqueueMessage(merged);
   };
@@ -594,6 +597,37 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       enqueueMessage(msg);
       return;
     }
+
+    const content = (msg.content ?? "").trim();
+
+    // 紧急命令（/stop 等）或斜杠命令：跳过 debounce，立即入队
+    const isUrgentOrSlash =
+      URGENT_COMMANDS.some(cmd => content.toLowerCase().startsWith(cmd.toLowerCase())) ||
+      content.startsWith("/");
+    if (isUrgentOrSlash) {
+      // 若当前 peer 有缓冲中的消息，先 flush 再处理本条
+      const peerId = getMessagePeerId(msg);
+      if (debounceBuffers.has(peerId)) {
+        const buf = debounceBuffers.get(peerId)!;
+        clearTimeout(buf.timer);
+        flushDebounceBuffer(peerId);
+      }
+      enqueueMessage(msg);
+      return;
+    }
+
+    // 带引用的消息：立即 flush 缓冲区并直接入队，不再等待防抖
+    if (msg.refMsgIdx) {
+      const peerId = getMessagePeerId(msg);
+      if (debounceBuffers.has(peerId)) {
+        const buf = debounceBuffers.get(peerId)!;
+        clearTimeout(buf.timer);
+        flushDebounceBuffer(peerId);
+      }
+      enqueueMessage(msg);
+      return;
+    }
+
     const peerId = getMessagePeerId(msg);
     const existing = debounceBuffers.get(peerId);
     if (existing) {
