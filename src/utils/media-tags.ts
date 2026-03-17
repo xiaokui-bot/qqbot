@@ -154,17 +154,40 @@ export function detectMediaTypeByExt(resource: string): MediaType {
 }
 
 /**
- * 通过 HTTP HEAD 请求探测 URL 的 Content-Type，返回媒体类型。
+ * 从 Content-Type 字符串解析媒体类型。
+ */
+function parseContentType(ct: string): MediaType | null {
+  if (!ct) return null;
+  if (ct.startsWith("image/")) return "image";
+  if (ct.startsWith("video/")) return "video";
+  if (ct.startsWith("audio/") || ct.includes("silk") || ct.includes("amr")) return "voice";
+  return null;
+}
+
+/**
+ * 通过 HTTP 请求探测 URL 的 Content-Type，返回媒体类型。
+ * 优先 HEAD，如果服务端不支持 HEAD（405/403/501）则 fallback 到 GET+Range。
  * 超时或失败时返回 null（调用方应 fallback 到后缀检测）。
  */
 export async function detectMediaTypeByContentType(url: string): Promise<MediaType | null> {
   try {
-    const resp = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
-    const ct = resp.headers.get("content-type")?.toLowerCase() || "";
-    if (ct.startsWith("image/")) return "image";
-    if (ct.startsWith("video/")) return "video";
-    if (ct.startsWith("audio/") || ct.includes("silk") || ct.includes("amr")) return "voice";
-    return null; // 未知类型，让调用方 fallback
+    const resp = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000), redirect: "follow" });
+    if (resp.ok) {
+      const result = parseContentType(resp.headers.get("content-type")?.toLowerCase() || "");
+      if (result) return result;
+    }
+    // HEAD 失败（405/403/501 等）或 Content-Type 无法判断，用 GET+Range 重试
+    if (!resp.ok || !parseContentType(resp.headers.get("content-type")?.toLowerCase() || "")) {
+      const getResp = await fetch(url, {
+        method: "GET",
+        headers: { Range: "bytes=0-0" },
+        signal: AbortSignal.timeout(5000),
+        redirect: "follow",
+      });
+      const ct = getResp.headers.get("content-type")?.toLowerCase() || "";
+      return parseContentType(ct);
+    }
+    return null;
   } catch {
     return null;
   }
