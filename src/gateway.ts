@@ -11,7 +11,7 @@ import { parseQQBotPayload, encodePayloadForCron, isCronReminderPayload, isMedia
 import { isVoiceAttachment, formatDuration, resolveTTSConfig, textToSilk, audioFileToSilkBase64, waitForFile, isAudioFile } from "./utils/audio-convert.js";
 import { normalizeMediaTags, detectMediaType, type MediaType } from "./utils/media-tags.js";
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize, downloadFile } from "./utils/file-utils.js";
-import { getQQBotDataDir, isLocalPath as isLocalFilePath, looksLikeLocalPath, normalizePath, sanitizeFileName, runDiagnostics } from "./utils/platform.js";
+import { getQQBotDataDir, getQQBotMediaDir, isLocalPath as isLocalFilePath, looksLikeLocalPath, normalizePath, sanitizeFileName, runDiagnostics } from "./utils/platform.js";
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
 
 /**
@@ -733,8 +733,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const voiceAsrReferTexts: string[] = [];
         const voiceTranscripts: string[] = [];
         const voiceTranscriptSources: Array<"stt" | "asr" | "fallback"> = [];
-        // 存到 .openclaw/qqbot 目录下的 downloads 文件夹
-        const downloadDir = getQQBotDataDir("downloads");
+        // 存到 .openclaw/media/qqbot 目录下的 downloads 文件夹（在框架媒体白名单内）
+        const downloadDir = getQQBotMediaDir("downloads");
         const attachmentLocalPaths: Array<string | null> = []; // 记录每个附件的本地路径（与 event.attachments 一一对应）
         
         if (event.attachments?.length) {
