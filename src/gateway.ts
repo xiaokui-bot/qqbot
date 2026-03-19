@@ -481,47 +481,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // 每个用户有独立队列，同一用户的消息串行处理（保持时序），
   // 不同用户的消息并行处理（互不阻塞）。
 
-  // ============ Inbound 防抖（合并短时间内连续消息） ============
-  // 读取 cfg.messages.inbound.debounceMs，默认 0（不防抖）
-  const inboundDebounceMs: number = (() => {
-    const v = (cfg as any)?.messages?.inbound?.debounceMs;
-    return typeof v === "number" && v > 0 ? v : 0;
-  })();
-  const debounceBuffers = new Map<string, { msgs: QueuedMessage[]; timer: ReturnType<typeof setTimeout> }>();
-  const flushDebounceBuffer = (peerId: string) => {
-    const buf = debounceBuffers.get(peerId);
-    if (!buf) return;
-    debounceBuffers.delete(peerId);
-    if (buf.msgs.length === 0) return;
-    if (buf.msgs.length === 1) {
-      enqueueMessage(buf.msgs[0]);
-      return;
-    }
-    // 合并多条消息：以最后一条为基准，content 拼接
-    const merged: QueuedMessage = {
-      ...buf.msgs[buf.msgs.length - 1],
-      content: buf.msgs.map(m => m.content).filter(Boolean).join("\n"),
-    };
-    enqueueMessage(merged);
-  };
-  const enqueueWithDebounce = (msg: QueuedMessage): void => {
-    if (inboundDebounceMs <= 0) {
-      enqueueMessage(msg);
-      return;
-    }
-    const peerId = getMessagePeerId(msg);
-    const existing = debounceBuffers.get(peerId);
-    if (existing) {
-      clearTimeout(existing.timer);
-      existing.msgs.push(msg);
-      existing.timer = setTimeout(() => flushDebounceBuffer(peerId), inboundDebounceMs);
-    } else {
-      const timer = setTimeout(() => flushDebounceBuffer(peerId), inboundDebounceMs);
-      debounceBuffers.set(peerId, { msgs: [msg], timer });
-    }
-  };
-
-  // 紧急命令列表：这些命令会立即执行，不进入队列
+    // 紧急命令列表：这些命令会立即执行，不进入队列
   const URGENT_COMMANDS = ["/stop"];
 
   const userQueues = new Map<string, QueuedMessage[]>(); // peerId → 消息队列
@@ -871,7 +831,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               await sendC2CInputNotify(token, event.senderId, event.messageId, 60);
             } else {
               // 网络抖动等非 token 错误，仅打印日志，不抛出异常导致消息处理链崩溃
-              log?.warn?.(`[qqbot:${account.accountId}] InputNotify failed (non-fatal), continuing: ${errMsg}`);
+              log?.info(`[qqbot:${account.accountId}] InputNotify failed (non-fatal), continuing: ${errMsg}`);
             }
           }
           log?.info(`[qqbot:${account.accountId}] Sent input notify to ${event.senderId}`);
@@ -1327,7 +1287,7 @@ ${mediaSection}
               await sendFn(newToken);
             } else {
               // 网络抖动等非 token 错误，仅打印日志，不抛出异常导致消息处理崩溃
-              log?.warn?.(`[qqbot:${account.accountId}] Send failed (non-fatal), skipping: ${errMsg}`);
+              log?.info(`[qqbot:${account.accountId}] Send failed (non-fatal), skipping: ${errMsg}`);
             }
           }
         };
@@ -1393,20 +1353,6 @@ ${mediaSection}
             const toolBlock = recentTools.join("\n---\n");
             return `🔧 调用工具中…\n\`\`\`\n${toolBlock}\n\`\`\``;
           };
-          let typingIntervalId: ReturnType<typeof setInterval> | null = null;
-
-          // 启动 typing 心跳：每 15 秒重发一次 C2C InputNotify，保持"正在输入"状态
-          if (event.type === "c2c") {
-            typingIntervalId = setInterval(async () => {
-              try {
-                const token = await getAccessToken(account.appId, account.clientSecret);
-                await sendC2CInputNotify(token, event.senderId, event.messageId, 60);
-              } catch {
-                // 非关键，忽略
-              }
-            }, 5000);
-          }
-
           const timeoutPromise = new Promise<void>((_, reject) => {
             timeoutId = setTimeout(() => {
               if (!hasResponse) {
